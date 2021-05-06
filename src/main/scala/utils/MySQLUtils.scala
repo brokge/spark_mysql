@@ -2,36 +2,33 @@ package utils
 
 import java.sql.{Date, Timestamp}
 import java.util.Properties
-
-import org.apache.log4j.Logger
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{DataFrame, SQLContext}
-/**
-  * Created with IntelliJ IDEA.
-  * Author: fly_elephant@163.com
-  * Description:MySQL DDL 和DML 工具类
-  * Date: Created in 2018-11-17 12:43
-  */
-object MySQLUtils {
-  val logger: Logger = Logger.getLogger(getClass.getSimpleName)
+import org.apache.spark.sql.{DataFrame, Row, SQLContext}
 
+/**
+ * Created with IntelliJ IDEA.
+ * Author: fly_elephant@163.com
+ * Description:MySQL DDL 和DML 工具类
+ * Date: Created in 2018-11-17 12:43
+ */
+object MySQLUtils {
   /**
-    * 将DataFrame所有类型(除id外)转换为String后,通过c3p0的连接池方法，向mysql写入数据
-    *
-    * @param tableName       表名
-    * @param resultDateFrame DataFrame
-    */
+   * 将DataFrame所有类型(除id外)转换为String后,通过c3p0的连接池方法，向mysql写入数据
+   *
+   * @param tableName       表名
+   * @param resultDateFrame DataFrame
+   */
   def saveDFtoDBUsePool(tableName: String, resultDateFrame: DataFrame) {
     val colNumbers = resultDateFrame.columns.length
     val sql = getInsertSql(tableName, colNumbers)
     val columnDataTypes = resultDateFrame.schema.fields.map(_.dataType)
-    resultDateFrame.foreachPartition(partitionRecords => {
+    resultDateFrame.foreachPartition((partitionRecords:Iterator[Row]) => {
       val conn = MySQLPoolManager.getMysqlManager.getConnection //从连接池中获取一个连接
       val preparedStatement = conn.prepareStatement(sql)
       val metaData = conn.getMetaData.getColumns(null, "%", tableName, "%") //通过连接获取表名对应数据表的元数据
       try {
         conn.setAutoCommit(false)
-        partitionRecords.foreach(record => {
+        for (record <- partitionRecords) {
           //注意:setString方法从1开始，record.getString()方法从0开始
           for (i <- 1 to colNumbers) {
             val value = record.get(i - 1)
@@ -57,7 +54,7 @@ object MySQLUtils {
             }
           }
           preparedStatement.addBatch()
-        })
+        }
         preparedStatement.executeBatch()
         conn.commit()
       } catch {
@@ -71,11 +68,12 @@ object MySQLUtils {
   }
 
   /**
-    * 拼装insert SQL
-    * @param tableName
-    * @param colNumbers
-    * @return
-    */
+   * 拼装insert SQL
+   *
+   * @param tableName
+   * @param colNumbers
+   * @return
+   */
   def getInsertSql(tableName: String, colNumbers: Int): String = {
     var sqlStr = "insert into " + tableName + " values("
     for (i <- 1 to colNumbers) {
@@ -88,7 +86,7 @@ object MySQLUtils {
     sqlStr
   }
 
-  /** 以元组的方式返回mysql属性信息 **/
+  /** 以元组的方式返回mysql属性信息 * */
   def getMySQLInfo: (String, String, String) = {
     val jdbcURL = PropertyUtils.getFileProperties("mysql-user.properties", "mysql.jdbc.url")
     val userName = PropertyUtils.getFileProperties("mysql-user.properties", "mysql.jdbc.username")
@@ -97,13 +95,13 @@ object MySQLUtils {
   }
 
   /**
-    * 从MySql数据库中获取DateFrame
-    *
-    * @param sqlContext     sqlContext
-    * @param mysqlTableName 表名
-    * @param queryCondition 查询条件(可选)
-    * @return DateFrame
-    */
+   * 从MySql数据库中获取DateFrame
+   *
+   * @param sqlContext     sqlContext
+   * @param mysqlTableName 表名
+   * @param queryCondition 查询条件(可选)
+   * @return DateFrame
+   */
   def getDFFromMysql(sqlContext: SQLContext, mysqlTableName: String, queryCondition: String): DataFrame = {
     val (jdbcURL, userName, passWord) = getMySQLInfo
     val prop = new Properties()
@@ -117,11 +115,12 @@ object MySQLUtils {
   }
 
   /**
-    * 删除数据表
-    * @param sqlContext
-    * @param mysqlTableName
-    * @return
-    */
+   * 删除数据表
+   *
+   * @param sqlContext
+   * @param mysqlTableName
+   * @return
+   */
   def dropMysqlTable(sqlContext: SQLContext, mysqlTableName: String): Boolean = {
     val conn = MySQLPoolManager.getMysqlManager.getConnection //从连接池中获取一个连接
     val preparedStatement = conn.createStatement()
@@ -138,12 +137,13 @@ object MySQLUtils {
   }
 
   /**
-    *  删除表中的数据
-    * @param sqlContext
-    * @param mysqlTableName
-    * @param condition
-    * @return
-    */
+   * 删除表中的数据
+   *
+   * @param sqlContext
+   * @param mysqlTableName
+   * @param condition
+   * @return
+   */
   def deleteMysqlTableData(sqlContext: SQLContext, mysqlTableName: String, condition: String): Boolean = {
     val conn = MySQLPoolManager.getMysqlManager.getConnection //从连接池中获取一个连接
     val preparedStatement = conn.createStatement()
@@ -160,10 +160,11 @@ object MySQLUtils {
   }
 
   /**
-    * 保存DataFrame 到 MySQL中，如果表不存在的话，会自动创建
-    * @param tableName
-    * @param resultDateFrame
-    */
+   * 保存DataFrame 到 MySQL中，如果表不存在的话，会自动创建
+   *
+   * @param tableName
+   * @param resultDateFrame
+   */
   def saveDFtoDBCreateTableIfNotExist(tableName: String, resultDateFrame: DataFrame) {
     //如果没有表,根据DataFrame建表
     createTableIfNotExist(tableName, resultDateFrame)
@@ -174,13 +175,14 @@ object MySQLUtils {
   }
 
 
-   /**
-    * 拼装insertOrUpdate SQL 语句
-    * @param tableName
-    * @param cols
-    * @param updateColumns
-    * @return
-    */
+  /**
+   * 拼装insertOrUpdate SQL 语句
+   *
+   * @param tableName
+   * @param cols
+   * @param updateColumns
+   * @return
+   */
   def getInsertOrUpdateSql(tableName: String, cols: Array[String], updateColumns: Array[String]): String = {
     val colNumbers = cols.length
     var sqlStr = "insert into " + tableName + s" (${cols.mkString(",")}) values("
@@ -200,17 +202,18 @@ object MySQLUtils {
   }
 
   /**
-    * 通过insertOrUpdate的方式把DataFrame写入到MySQL中，注意：此方式，必须对表设置主键
-    * @param tableName
-    * @param resultDateFrame
-    * @param updateColumns
-    */
+   * 通过insertOrUpdate的方式把DataFrame写入到MySQL中，注意：此方式，必须对表设置主键
+   *
+   * @param tableName
+   * @param resultDateFrame
+   * @param updateColumns
+   */
   def insertOrUpdateDFtoDBUsePool(tableName: String, resultDateFrame: DataFrame, updateColumns: Array[String]) {
     val colNumbers = resultDateFrame.columns.length
     val sql = getInsertOrUpdateSql(tableName, resultDateFrame.columns, updateColumns)
     val columnDataTypes = resultDateFrame.schema.fields.map(_.dataType)
     println("############## sql = " + sql)
-    resultDateFrame.foreachPartition(partitionRecords => {
+    resultDateFrame.foreachPartition((partitionRecords:Iterator[Row]) => {
       val conn = MySQLPoolManager.getMysqlManager.getConnection //从连接池中获取一个连接
       val preparedStatement = conn.prepareStatement(sql)
       val metaData = conn.getMetaData.getColumns(null, "%", tableName, "%") //通过连接获取表名对应数据表的元数据
@@ -263,8 +266,8 @@ object MySQLUtils {
                 case _ => throw new RuntimeException(s"nonsupport ${dataType} !!!")
               }
             } else { //如果值为空,将值设为对应类型的空值
-              metaData.absolute(colNumbers+i)
-              preparedStatement.setNull(colNumbers+i, metaData.getInt("DATA_TYPE"))
+              metaData.absolute(colNumbers + i)
+              preparedStatement.setNull(colNumbers + i, metaData.getInt("DATA_TYPE"))
             }
           }
           preparedStatement.addBatch()
@@ -283,13 +286,13 @@ object MySQLUtils {
 
 
   /**
-    * 如果数据表不存在,根据DataFrame的字段创建数据表,数据表字段顺序和dataFrame对应
-    * 若DateFrame出现名为id的字段,将其设为数据库主键(int,自增,主键),其他字段会根据DataFrame的DataType类型来自动映射到MySQL中
-    *
-    * @param tableName 表名
-    * @param df        dataFrame
-    * @return
-    */
+   * 如果数据表不存在,根据DataFrame的字段创建数据表,数据表字段顺序和dataFrame对应
+   * 若DateFrame出现名为id的字段,将其设为数据库主键(int,自增,主键),其他字段会根据DataFrame的DataType类型来自动映射到MySQL中
+   *
+   * @param tableName 表名
+   * @param df        dataFrame
+   * @return
+   */
   def createTableIfNotExist(tableName: String, df: DataFrame): AnyVal = {
     val con = MySQLPoolManager.getMysqlManager.getConnection
     val metaData = con.getMetaData
@@ -326,11 +329,11 @@ object MySQLUtils {
   }
 
   /**
-    * 验证数据表和dataFrame字段个数,名称,顺序是否一致
-    *
-    * @param tableName 表名
-    * @param df        dataFrame
-    */
+   * 验证数据表和dataFrame字段个数,名称,顺序是否一致
+   *
+   * @param tableName 表名
+   * @param df        dataFrame
+   */
   def verifyFieldConsistency(tableName: String, df: DataFrame): Unit = {
     val con = MySQLPoolManager.getMysqlManager.getConnection
     val metaData = con.getMetaData
